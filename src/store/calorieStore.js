@@ -5,7 +5,7 @@ const useCalorieStore = create(
   persist(
     (set, get) => ({
       meals: [],
-      dailyGoal: 2000,
+      dailyGoal: null,
       selectedDate: new Date().toISOString().split('T')[0],
       
       addMeal: (meal) =>

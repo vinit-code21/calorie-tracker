@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useCalorieStore from '../store/calorieStore';
-import { searchFood } from '../services/calorieApi';
+import { searchFood, getCategorySuggestions } from '../services/calorieApi';
 import { useAuth } from '../context/AuthContext';
+import SetDailyGoalModal from '../components/SetDailyGoalModal';
+import PortionModal from '../components/PortionModal';
+import LogoutModal from '../components/LogoutModal';
 import { 
   ChartBarIcon, 
   HomeIcon, 
@@ -10,7 +13,8 @@ import {
   TrashIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  MagnifyingGlassIcon
+  MagnifyingGlassIcon,
+  Cog6ToothIcon
 } from '@heroicons/react/24/solid';
 
 const foodCategories = [
@@ -36,6 +40,9 @@ const Dashboard = () => {
     getTotalCalories
   } = useCalorieStore();
 
+  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
+  const [isPortionModalOpen, setIsPortionModalOpen] = useState(false);
+  const [selectedFood, setSelectedFood] = useState(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -44,6 +51,16 @@ const Dashboard = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [categorySuggestions, setCategorySuggestions] = useState([]);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+
+  // Show goal modal on first load if no goal is set
+  useEffect(() => {
+    if (dailyGoal === null) {
+      setIsGoalModalOpen(true);
+    }
+  }, [dailyGoal]);
 
   // Debounce search term
   useEffect(() => {
@@ -83,15 +100,36 @@ const Dashboard = () => {
     setSelectedDate(date.toISOString().split('T')[0]);
   };
 
-  const filteredFoods = searchResults.filter((food) => 
-    selectedCategory === 'All' || food.category === selectedCategory
-  );
+  const handleCategoryClick = async (category) => {
+    setSelectedCategory(category);
+    setSearchTerm(''); // Clear search when changing category
+    setSearchResults([]); // Clear previous search results
 
-  const todaysMeals = getTodaysMeals();
-  const totalCalories = getTotalCalories();
-  const remainingCalories = dailyGoal - totalCalories;
+    if (category !== 'All') {
+      setIsLoadingSuggestions(true);
+      try {
+        const suggestions = await getCategorySuggestions(category);
+        setCategorySuggestions(suggestions);
+      } catch (error) {
+        console.error('Error fetching category suggestions:', error);
+      } finally {
+        setIsLoadingSuggestions(false);
+      }
+    } else {
+      setCategorySuggestions([]);
+    }
+  };
 
-  const handleLogout = async () => {
+  const handleAddMeal = (food) => {
+    setSelectedFood(food);
+    setIsPortionModalOpen(true);
+  };
+
+  const handleLogoutClick = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleLogoutConfirm = async () => {
     try {
       await logout();
       navigate('/');
@@ -99,6 +137,14 @@ const Dashboard = () => {
       console.error('Logout failed:', error);
     }
   };
+
+  const filteredFoods = searchResults.filter((food) => 
+    selectedCategory === 'All' || food.category === selectedCategory
+  );
+
+  const todaysMeals = getTodaysMeals();
+  const totalCalories = getTotalCalories();
+  const remainingCalories = dailyGoal - totalCalories;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -146,7 +192,14 @@ const Dashboard = () => {
                 </div>
               </div>
               <button
-                onClick={handleLogout}
+                onClick={() => setIsGoalModalOpen(true)}
+                className="text-gray-500 hover:text-gray-700"
+                title="Set Daily Goal"
+              >
+                <Cog6ToothIcon className="h-6 w-6" />
+              </button>
+              <button
+                onClick={handleLogoutClick}
                 className="text-sm text-gray-600 hover:text-red-600 transition-colors"
               >
                 Logout
@@ -187,8 +240,18 @@ const Dashboard = () => {
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="text-lg font-semibold text-gray-700">Daily Goal</h3>
-              <p className="text-2xl font-bold text-blue-600">{dailyGoal} cal</p>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-700">Daily Goal</h3>
+                <button
+                  onClick={() => setIsGoalModalOpen(true)}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Cog6ToothIcon className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="text-2xl font-bold text-blue-600">
+                {dailyGoal ? `${dailyGoal} cal` : 'Not set'}
+              </p>
             </div>
             <div className="bg-green-50 p-4 rounded-lg">
               <h3 className="text-lg font-semibold text-gray-700">Consumed</h3>
@@ -197,22 +260,24 @@ const Dashboard = () => {
             <div className={`p-4 rounded-lg ${remainingCalories >= 0 ? 'bg-purple-50' : 'bg-red-50'}`}>
               <h3 className="text-lg font-semibold text-gray-700">Remaining</h3>
               <p className={`text-2xl font-bold ${remainingCalories >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
-                {remainingCalories} cal
+                {dailyGoal ? `${remainingCalories} cal` : 'Set a goal'}
               </p>
             </div>
           </div>
           
           {/* Progress Bar */}
-          <div className="mt-4">
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
-              <div
-                className={`h-2.5 rounded-full ${
-                  totalCalories > dailyGoal ? 'bg-red-500' : 'bg-blue-500'
-                }`}
-                style={{ width: `${Math.min((totalCalories / dailyGoal) * 100, 100)}%` }}
-              ></div>
+          {dailyGoal && (
+            <div className="mt-4">
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className={`h-2.5 rounded-full ${
+                    totalCalories > dailyGoal ? 'bg-red-500' : 'bg-blue-500'
+                  }`}
+                  style={{ width: `${Math.min((totalCalories / dailyGoal) * 100, 100)}%` }}
+                ></div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -247,19 +312,57 @@ const Dashboard = () => {
                       ? 'bg-blue-500 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
-                  onClick={() => setSelectedCategory(category)}
+                  onClick={() => handleCategoryClick(category)}
                 >
                   {category}
                 </button>
               ))}
             </div>
 
-            {/* Search Results */}
+            {/* Search Results or Category Suggestions */}
             <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto">
-              {searchTerm.trim().length < 2 ? (
-                <p className="text-gray-500 text-center py-4">
-                  Start typing to search for foods (minimum 2 characters)
-                </p>
+              {isLoading || isLoadingSuggestions ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                </div>
+              ) : searchTerm.trim().length < 2 ? (
+                categorySuggestions.length > 0 ? (
+                  <>
+                    <h3 className="text-sm font-medium text-gray-500 mb-2">Suggested {selectedCategory} Items:</h3>
+                    {categorySuggestions.map((food) => (
+                      <div
+                        key={food.id}
+                        className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+                      >
+                        <div>
+                          <h3 className="font-medium capitalize">{food.name}</h3>
+                          <p className="text-sm text-gray-600">{food.serving}</p>
+                          <div className="text-sm text-gray-500">
+                            <span>{Math.round(food.calories)} cal</span>
+                            <span className="mx-2">•</span>
+                            <span>P: {Math.round(food.protein)}g</span>
+                            <span className="mx-2">•</span>
+                            <span>C: {Math.round(food.carbs)}g</span>
+                            <span className="mx-2">•</span>
+                            <span>F: {Math.round(food.fat)}g</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleAddMeal(food)}
+                          className="p-2 text-blue-500 hover:bg-blue-50 rounded-full"
+                        >
+                          <PlusIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-gray-500 text-center py-4">
+                    {selectedCategory === 'All' 
+                      ? 'Start typing to search for foods (minimum 2 characters)'
+                      : `No suggestions available for ${selectedCategory}`}
+                  </p>
+                )
               ) : filteredFoods.length === 0 && !isLoading ? (
                 <p className="text-gray-500 text-center py-4">
                   No foods found. Try a different search term.
@@ -284,7 +387,7 @@ const Dashboard = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => addMeal(food)}
+                      onClick={() => handleAddMeal(food)}
                       className="p-2 text-blue-500 hover:bg-blue-50 rounded-full"
                     >
                       <PlusIcon className="h-5 w-5" />
@@ -339,6 +442,28 @@ const Dashboard = () => {
           </div>
         </div>
       </main>
+
+      <SetDailyGoalModal
+        isOpen={isGoalModalOpen}
+        onClose={() => setIsGoalModalOpen(false)}
+      />
+      
+      <PortionModal
+        isOpen={isPortionModalOpen}
+        onClose={() => {
+          setIsPortionModalOpen(false);
+          setSelectedFood(null);
+        }}
+        food={selectedFood}
+        onAdd={addMeal}
+      />
+
+      <LogoutModal
+        isOpen={isLogoutModalOpen}
+        onClose={() => setIsLogoutModalOpen(false)}
+        onLogout={handleLogoutConfirm}
+        userName={user}
+      />
     </div>
   );
 };
